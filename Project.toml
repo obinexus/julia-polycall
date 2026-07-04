@@ -1,0 +1,7 @@
+name = "JuliaPolycall"
+uuid = "7d8b5cf5-28e8-4a84-bd4e-0eaf5e9a7b31"
+authors = ["Nnamdi Michael Okpala <okpalan@protonmail.com>"]
+version = "1.0.0"
+
+[compat]
+julia = "1.10"

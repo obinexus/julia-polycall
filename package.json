@@ -1,0 +1,60 @@
+{
+  "name": "@obinexusltd/julia-polycall",
+  "version": "1.0.0",
+  "description": "Julia ccall source binding for libpolycall 1.5",
+  "main": "index.js",
+  "type": "commonjs",
+  "files": [
+    "index.js",
+    "Project.toml",
+    "src/",
+    "c_src/",
+    "include/",
+    "generated/",
+    "examples/",
+    "test/",
+    "tests/",
+    "scripts/",
+    "Makefile",
+    "julia-polycallrc",
+    "polycall-binding.json",
+    "README.md",
+    "TODO.md",
+    "LICENSE"
+  ],
+  "directories": {
+    "example": "examples",
+    "lib": "src",
+    "test": "test"
+  },
+  "scripts": {
+    "build": "make",
+    "build:native": "make native",
+    "test": "make test && npm run verify:dry && npm run test:package",
+    "test:julia": "make test-julia",
+    "test:package": "node tests/package.test.js",
+    "verify:dry": "make verify-dry",
+    "verify": "npm test",
+    "prepack": "npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/obinexus/julia-polycall.git"
+  },
+  "keywords": [
+    "libpolycall",
+    "polycall",
+    "julia",
+    "ccall",
+    "ffi"
+  ],
+  "author": "Nnamdi Michael Okpala <okpalan@protonmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/obinexus/julia-polycall/issues"
+  },
+  "homepage": "https://github.com/obinexus/julia-polycall#readme"
+}

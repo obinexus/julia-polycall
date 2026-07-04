@@ -1,14 +1,15 @@
-# TODO — julia-polycall (Julia)
+# TODO — julia-polycall
 
-Status: 🧩 scaffolded adapter for libpolycall 1.5.0. Honestly not yet wired to
-the core — this file tracks the remaining work. Rolled up in
-[../../docs/release/TODO-1.5.md](../../docs/release/TODO-1.5.md).
+Status: implemented thin Julia adapter for libpolycall 1.5.
 
-- [x] Folder structure, manifest, and `julia-polycallrc` (shared schema)
-- [ ] Locate/generate Julia FFI bindings for `polycall_ffi.h`
-- [ ] Implement the thin adapter in `src/` (idioms -> `polycall_ffi_run_config`)
-- [ ] Add a runnable example under `examples/`
-- [ ] Add a smoke test under `tests/`
-- [ ] Confirm `scripts/verify-dry.sh` passes (no core duplication)
+- [x] Publishable `@obinexusltd/julia-polycall` npm source package
+- [x] Standard Julia `Project.toml` and module layout
+- [x] `ccall` status and exception APIs with checked `Cstring` marshalling
+- [x] Exact `polycall_ffi_run_config(config_path, 1)` forwarding
+- [x] Runnable example under `examples/`
+- [x] Native forwarding test and Julia smoke test
+- [x] Thin-adapter source audit for Windows and POSIX shells
+- [ ] Exercise the Julia smoke test in release CI across supported platforms
+- [ ] Publish signed platform-native artifacts alongside the source package
 
-Do not add config parsing or runtime logic here — adapt the core only.
+Do not add configuration parsing or runtime policy here; adapt the core only.

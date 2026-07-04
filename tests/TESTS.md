@@ -1,4 +1,5 @@
-# Julia tests (scaffold)
+# Julia tests
 
-Add a smoke test that loads `../julia-polycallrc`, calls the adapter, and asserts a
-zero status. Mirror the reference bindings (pypolycall / rust-polycall).
+`npm test` runs the native forwarding test, thin-adapter audit, and npm package
+integrity test. `npm run test:julia` additionally loads the Julia package and
+runs its `ccall` smoke test through a mock native library.

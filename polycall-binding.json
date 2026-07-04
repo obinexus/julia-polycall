@@ -1,11 +1,13 @@
 {
   "name": "julia-polycall",
+  "package": "@obinexusltd/julia-polycall",
   "version": "1.5.0",
   "language": "Julia",
   "adapter": true,
   "ffi": true,
+  "entry_point": "polycall_ffi_run_config",
   "config": "julia-polycallrc",
   "core": "../../src",
-  "license": "MIT OBINexus",
+  "license": "MIT",
   "author": "Nnamdi Michael Okpala"
 }

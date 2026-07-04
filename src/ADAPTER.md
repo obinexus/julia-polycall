@@ -1,8 +1,10 @@
-# Julia adapter (scaffold)
+# Julia adapter
 
-Implement the Julia adapter here. It must call across the FFI boundary only:
+The implementation lives in `JuliaPolycall.jl`. It crosses the `ccall`/FFI
+boundary only through:
 
     status = polycall_ffi_run_config("julia-polycallrc", /*run=*/1)
 
-Return/raise a Julia-native error when `status` is non-zero. Do not parse
-config or duplicate any core logic. See ../../../docs/adapter-pattern.md.
+`run_config` returns the status and `run_config_or_throw` raises
+`PolycallError`. No configuration parsing or core runtime logic belongs in this
+binding.
