@@ -108,7 +108,12 @@ struct Library
     fn::NamedTuple{SYMBOL_NAMES, NTuple{length(SYMBOL_NAMES), Ptr{Cvoid}}}
 end
 
-const LIBRARY = Ref{Library}()          # unassigned until first use
+# Published once with release/acquire ordering, so a thread that sees the
+# Library also sees its fields (double-checked lazy initialisation).
+mutable struct LibraryRef
+    @atomic lib::Union{Nothing, Library}
+end
+const LIBRARY = LibraryRef(nothing)     # nothing until first use
 const LIBRARY_LOCK = ReentrantLock()
 
 function default_candidates()
@@ -165,10 +170,15 @@ end
 
 """The loaded library (loads it on first use; thread-safe)."""
 function lib()::Library
-    isassigned(LIBRARY) && return LIBRARY[]
+    l = @atomic :acquire LIBRARY.lib
+    l === nothing || return l
     lock(LIBRARY_LOCK) do
-        isassigned(LIBRARY) || (LIBRARY[] = load_library())
-        LIBRARY[]
+        l = @atomic :acquire LIBRARY.lib
+        if l === nothing
+            l = load_library()
+            @atomic :release LIBRARY.lib = l
+        end
+        l
     end
 end
 
@@ -215,16 +225,13 @@ check(status::Integer; kw...) = status == POLYCALL_OK ? nothing : throw(polycall
 
 cstr(buf::Vector{UInt8}) = String(buf[1:(something(findfirst(==(0x00), buf), length(buf) + 1) - 1)])
 
-optstr(x::Nothing) = C_NULL
-optstr(x::AbstractString) = String(x)
-
 function check_cstring(s::AbstractString, what)
     occursin('\0', s) && throw(ArgumentError("$what must not contain NUL"))
     return String(s)
 end
 
 timeout_u32(t::Nothing) = WAIT_FOREVER
-timeout_u32(t::Real) = t < 0 ? throw(ArgumentError("timeout must be >= 0")) :
+timeout_u32(t::Real) = !(t >= 0) ? throw(ArgumentError("timeout must be >= 0 (got $t)")) :   # also NaN
                        t >= WAIT_FOREVER ? WAIT_FOREVER : UInt32(round(t))
 
 # ---------------------------------------------------------------------------
@@ -329,8 +336,13 @@ end
 A Polycall peer node (`polycall_peer_open`). `bind = nothing` opens a
 send-only node. `token` is the shared secret (`nothing`/"" = none); a
 non-loopback bind needs one. `close(peer)` stops it (a second close throws
-`POLYCALL_E_INVALID_HANDLE`, as does any call after close); a peer that is
-garbage collected without `close` is closed by its finalizer.
+`POLYCALL_E_INVALID_HANDLE`, as does any call after close).
+
+Call `close` when done: the core allows at most 255 open nodes per process.
+A peer that is garbage collected without `close` is closed by its finalizer
+(on a separate task, see `finalize_peer`), and when `polycall_peer_open`
+reports `POLYCALL_E_BUSY` the constructor runs the GC once, waits for those
+deferred closes and retries.
 """
 mutable struct Peer
     handle::Int32
@@ -342,10 +354,15 @@ mutable struct Peer
         id = check_cstring(node_id, "node_id")
         b = bind === nothing ? nothing : check_cstring(bind, "bind")
         t = token === nothing ? nothing : check_cstring(token, "token")
-        GC.@preserve b t begin
-            st = @blocking ccall(fnptr(:polycall_peer_open), Cint, (Cstring, Ptr{UInt8}, Ptr{UInt8}, Ref{Int32}),
-                                 id, b === nothing ? Ptr{UInt8}(C_NULL) : pointer(b),
-                                 t === nothing ? Ptr{UInt8}(C_NULL) : pointer(t), h)
+        open_once() = GC.@preserve b t begin
+            @blocking ccall(fnptr(:polycall_peer_open), Cint, (Cstring, Ptr{UInt8}, Ptr{UInt8}, Ref{Int32}),
+                            id, b === nothing ? Ptr{UInt8}(C_NULL) : pointer(b),
+                            t === nothing ? Ptr{UInt8}(C_NULL) : pointer(t), h)
+        end
+        st = open_once()
+        if st == POLYCALL_E_BUSY
+            reclaim_unreachable_peers()
+            st = open_once()        # the node limit may have been held by garbage
         end
         check(st)
         p = new(h[], false)
@@ -354,11 +371,47 @@ mutable struct Peer
     end
 end
 
+# Peers closed by finalizers: scheduled, and not yet closed.
+const DEFERRED_CLOSES = Threads.Atomic{Int}(0)
+const FINALIZED_PEERS = Threads.Atomic{Int}(0)    # total, for tests
+
+"""
+    finalize_peer(p)
+
+Finalizer of an unreachable, unclosed [`Peer`](@ref). It does NOT call into
+libpolycall itself: finalizers run inside GC on whatever thread allocated,
+possibly between a failed call and the `polycall_last_error()` read that
+reports it, and a successful `polycall_peer_close` there would clear that
+thread's error detail. The close runs on its own task instead.
+"""
 function finalize_peer(p::Peer)
-    # never throws, never yields; the core validates the handle anyway
-    if !(@atomic p.closed) && isassigned(LIBRARY)
-        @atomic p.closed = true
-        ccall(LIBRARY[].fn.polycall_peer_close, Cint, (Int32,), p.handle)
+    # never throws, never yields
+    if (@atomicreplace p.closed false => true).success
+        Threads.atomic_add!(DEFERRED_CLOSES, 1)
+        Threads.atomic_add!(FINALIZED_PEERS, 1)
+        h = p.handle
+        Threads.@spawn close_finalized(h)
+    end
+    return nothing
+end
+
+function close_finalized(h::Int32)
+    try
+        l = @atomic :acquire LIBRARY.lib
+        l === nothing || @blocking ccall(l.fn.polycall_peer_close, Cint, (Int32,), h)
+    finally
+        Threads.atomic_sub!(DEFERRED_CLOSES, 1)
+    end
+    return nothing
+end
+
+# Run the GC so unreachable peers are finalized, then wait (bounded) for the
+# deferred closes to finish.
+function reclaim_unreachable_peers(; timeout_s::Real = 5)::Nothing
+    GC.gc(true)
+    deadline = time() + timeout_s
+    while DEFERRED_CLOSES[] > 0 && time() < deadline
+        sleep(0.001)
     end
     return nothing
 end

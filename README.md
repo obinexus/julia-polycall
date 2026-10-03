@@ -46,8 +46,13 @@ bytes and leaves the message queued. Errors are `PolycallError(status, name,
 detail, config_path, info)`: the status code, `polycall_strerror`, and
 `polycall_last_error` read on the same thread right after the failure.
 
-A `Peer` that is garbage collected without `close` is closed by its
-finalizer. Calls after `close` (including a second `close`) throw
+Close every `Peer` you open: the core allows at most 255 open nodes per
+process. A `Peer` that is garbage collected without `close` is closed by its
+finalizer, on a separate task (a finalizer runs inside GC on whatever thread
+allocated, and closing there would overwrite that thread's
+`polycall_last_error` detail); when `Peer(...)` hits the node limit
+(`POLYCALL_E_BUSY`) it runs the GC once, waits for those deferred closes and
+retries. Calls after `close` (including a second `close`) throw
 `POLYCALL_E_INVALID_HANDLE`.
 
 **Threads.** Blocking calls (`recv`, `send`, `ping`, `call`, `close`, …) are
@@ -64,10 +69,12 @@ JULIA_NUM_THREADS=4 julia --project=. -e 'using Pkg; Pkg.test()'    # or: make t
 
 `test/runtests.jl` runs against the **real** library: the
 `docs/BINDING_ABI.md` checklist, load errors (fake libraries built from
-`test/fixtures/fake_polycall.c`), `call` against a `polycall start`
-runtime, and interop with a `polycall peer serve` C node in both directions.
-It needs `polycall` on PATH (or `POLYCALL_CLI`); checks that cannot run print
-`SKIP` and are never counted as passes.
+`test/fixtures/fake_polycall.c`; needs Linux and `cc`), `call` against a
+`polycall start` runtime and a `polycall daemon start` daemon, a non-ASCII
+config path, integer boundaries, concurrent senders and callers, and interop
+with a `polycall peer serve` C node in both directions. It needs `polycall` on
+PATH (or `POLYCALL_CLI`) and `JULIA_NUM_THREADS >= 2` for the thread checks;
+checks that cannot run print `SKIP` and are never counted as passes.
 
 ## License
 

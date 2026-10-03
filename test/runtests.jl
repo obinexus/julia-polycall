@@ -1,6 +1,7 @@
 # Tests of JuliaPolycall against the REAL installed libpolycall (no mocks):
-# the docs/BINDING_ABI.md checklist, `polycall_call` against `polycall start`,
-# and interop with a `polycall peer serve` C node in both directions.
+# the docs/BINDING_ABI.md checklist, `polycall_call` against `polycall start`
+# and `polycall daemon start`, and interop with a `polycall peer serve` C node
+# in both directions.
 #
 # Needs libpolycall (POLYCALL_LIBRARY or the loader path) and, for the RPC and
 # interop checks, the `polycall` CLI (POLYCALL_CLI or PATH). Checks that need
@@ -83,19 +84,26 @@ end
 jfield(json, key) = (m = match(Regex("\"$key\":\"([^\"]*)\""), json); m === nothing ? nothing : m[1])
 
 # Run f on another thread and return once it is running there (the main
-# task busy-waits without yielding, so the spawned task cannot be on our thread).
+# task busy-waits without yielding, so the spawned task cannot be on our
+# thread). The wait loops pass GC safepoints: a loop without one would stall
+# a GC started by any other thread (e.g. by a finalizer) until it ends.
+function busy_wait(cond, seconds)
+    deadline = time() + seconds
+    while !cond() && time() < deadline
+        GC.safepoint()
+        Libc.systemsleep(0.005)
+    end
+    return cond()
+end
+
 function spawn_running(f)
     started = Threads.Atomic{Bool}(false)
     t = Threads.@spawn begin
         started[] = true
         f()
     end
-    deadline = time() + 10
-    while !started[] && time() < deadline
-        Libc.systemsleep(0.005)
-    end
-    started[] || error("spawned task did not start")
-    Libc.systemsleep(0.2)              # let it enter the blocking call
+    busy_wait(() -> started[], 10) || error("spawned task did not start")
+    busy_wait(() -> false, 0.2)        # let it enter the blocking call
     return t
 end
 
@@ -199,6 +207,19 @@ end
     @test occursin("\"beta\":\"127.0.0.1:9002\"", d) && startswith(d, "{")
 end
 
+@testset "non-ASCII (UTF-8) config path" begin
+    dir = joinpath(TMP, "ünïcødé-конфиг-設定")
+    mkpath(dir)
+    path = joinpath(dir, "julia-polycallrc-ß")
+    write(path, read(joinpath(dirname(@__DIR__), "julia-polycallrc")))
+    @test run_config(path) == 0
+    @test run_config_or_throw(path) === nothing
+    @test occursin("max_connections", describe(path))
+    gone = joinpath(dir, "fehlt-ü-polycallrc")
+    e = caught(() -> run_config_or_throw(gone))
+    @test e isa PolycallError && e.status == POLYCALL_E_NOT_FOUND && e.config_path == gone
+end
+
 @testset "call (polycall start)" begin
     if RPC === nothing
         skip("call", "polycall CLI not found")
@@ -221,6 +242,49 @@ end
         @test status_of(() -> call("no-port", "debug", "echo")) == POLYCALL_E_INVALID_ARGUMENT
         probe = Peer("jl-probe"); free = endpoint(probe); close(probe)
         @test status_of(() -> call(free, "debug", "echo"; timeout_ms = 2000)) == POLYCALL_E_TRANSPORT
+    end
+end
+
+@testset "call (polycall daemon start / stop)" begin
+    if CLI === nothing
+        skip("daemon call", "polycall CLI not found")
+    else
+        ddir = joinpath(TMP, "daemon"); mkpath(ddir)
+        pf = joinpath(ddir, "Polycallfile"); write(pf, "log_level=info\n")
+        state = joinpath(ddir, "state")
+        rc, out = run_cli("daemon", "start", "--endpoint", "127.0.0.1:0", "--state-dir", state, pf)
+        println("  ", strip(out))
+        @test rc == 0
+        statefile = joinpath(state, "daemon.json")
+        ep = isfile(statefile) ? jfield(read(statefile, String), "endpoint") : nothing
+        try
+            @test ep !== nothing && startswith(ep, "127.0.0.1:") && ep != "127.0.0.1:0"
+            @test call(ep, "inventory", "get", "{\"item_id\":\"widget-a\"}") ==
+                  "{\"item_id\":\"widget-a\",\"quantity\":42,\"in_stock\":true}"
+            @test call(ep, "debug", "echo", "[1,\"$(utf8_text())\",null]") == "{\"echo\":[1,\"$(utf8_text())\",null]}"
+            e = caught(() -> call(ep, "inventory", "nope"))
+            @test e isa PolycallError && e.status == POLYCALL_E_NOT_FOUND && occursin("operation.unknown", e.info)
+            e = caught(() -> call(ep, "inventory", "get", "{}"))
+            @test e isa PolycallError && e.status == POLYCALL_E_REMOTE && occursin("input.invalid", e.info)
+            @test status_of(() -> call(ep, "debug", "sleep", "{\"ms\":2000}"; timeout_ms = 300)) == POLYCALL_E_TIMEOUT
+            @test status_of(() -> call(ep, "debug", "echo", "{bad")) == POLYCALL_E_INVALID_ARGUMENT
+        finally
+            rc, out = run_cli("daemon", "stop", "--state-dir", state, pf)
+            println("  ", strip(out))
+            @test rc == 0
+        end
+        # the daemon is gone: no runtime -> transport error
+        @test ep === nothing || status_of(() -> call(ep, "debug", "echo"; timeout_ms = 2000)) == POLYCALL_E_TRANSPORT
+    end
+end
+
+@testset "concurrent calls (8 tasks x 10 calls) each get their own result" begin
+    if RPC === nothing
+        skip("concurrent calls", "polycall CLI not found")
+    else
+        tasks = [Threads.@spawn [call(RPC, "debug", "echo", "{\"t\":$i,\"j\":$j}") for j in 1:10] for i in 1:8]
+        results = fetch.(tasks)
+        @test all(results[i][j] == "{\"echo\":{\"t\":$i,\"j\":$j}}" for i in 1:8 for j in 1:10)
     end
 end
 
@@ -336,14 +400,60 @@ end
     close(a); close(b)
 end
 
+@testset "integer boundaries: buffer sizes, lengths, ids, timeouts" begin
+    a = node("jl-bound-a"); b = node("jl-bound-b"); epb = endpoint(b)
+    # receive capacity: exactly the payload size fits, one byte less does not
+    payload = rand(UInt8, 100)
+    send(a, epb, payload; message_id = "m-b100")
+    e = caught(() -> recv(b; timeout_ms = 3000, max_payload = 99))
+    @test e isa PolycallError && e.status == POLYCALL_E_TOO_LARGE && e.info == 100
+    @test recv(b; timeout_ms = 1000, max_payload = 100) == Message("jl-bound-a", "m-b100", payload)
+    send(a, epb, UInt8[]; message_id = "m-b0")
+    @test recv(b; timeout_ms = 3000, max_payload = 0) == Message("jl-bound-a", "m-b0", UInt8[])
+    big = rand(UInt8, MIB)
+    send(a, epb, big; message_id = "m-bmib", timeout_ms = 10000)
+    e = caught(() -> recv(b; timeout_ms = 10000, max_payload = MIB - 1))
+    @test e isa PolycallError && e.status == POLYCALL_E_TOO_LARGE && e.info == MIB
+    @test recv(b; timeout_ms = 1000, max_payload = MIB) == Message("jl-bound-a", "m-bmib", big)
+    # Julia-side range checks (before any library call)
+    @test_throws ArgumentError recv(b; max_payload = MIB + 1)
+    @test_throws ArgumentError recv(b; max_payload = -1)
+    @test_throws ArgumentError recv(b; timeout_ms = -1)
+    @test_throws ArgumentError recv(b; timeout_ms = NaN)
+    @test_throws ArgumentError send(a, epb, "x"; timeout_ms = -5)
+    # timeouts >= 2^32 - 1 are UINT32_MAX ("wait until a message"); a queued message returns at once
+    send(a, epb, "max"; message_id = "m-bmax")
+    @test recv(b; timeout_ms = typemax(UInt32)).message_id == "m-bmax"
+    send(a, epb, "over"; message_id = "m-bover")
+    @test recv(b; timeout_ms = Int64(typemax(UInt32)) + 10).message_id == "m-bover"
+    # identifiers: 63 bytes accepted, 64 refused
+    send(a, epb, "id"; message_id = "i"^63)
+    @test recv(b; timeout_ms = 3000).message_id == "i"^63
+    @test status_of(() -> send(a, epb, "id"; message_id = "i"^64)) == POLYCALL_E_INVALID_ARGUMENT
+    p63 = Peer("n"^63; bind = nothing)
+    @test node_id(p63) == "n"^63
+    close(p63)
+    # call: timeout_ms 1..600000 in the library, 0..2^32-1 in Julia
+    if RPC !== nothing
+        @test call(RPC, "debug", "echo", "1"; timeout_ms = 600000) == "{\"echo\":1}"
+        @test status_of(() -> call(RPC, "debug", "echo"; timeout_ms = 600001)) == POLYCALL_E_INVALID_ARGUMENT
+        @test_throws ArgumentError call(RPC, "debug", "echo"; timeout_ms = -1)
+        @test_throws ArgumentError call(RPC, "debug", "echo"; timeout_ms = Int64(typemax(UInt32)) + 1)
+    end
+    close(a); close(b)
+end
+
 @testset "cancel and close wake a blocked recv (threads)" begin
     if Threads.nthreads() < 2
         skip("cancel/close wake", "needs JULIA_NUM_THREADS >= 2 (got $(Threads.nthreads()))")
     else
         a = node("jl-cancel")
-        t = spawn_running(() -> status_of(() -> recv(a; timeout_ms = 10000)))
+        # wait forever (UINT32_MAX); the watchdog turns a missing wake-up into a failure, not a hang
+        watchdog = Timer(_ -> close(a), 15)
+        t = spawn_running(() -> status_of(() -> recv(a)))
         t0 = time(); cancel(a)
         @test fetch(t) == POLYCALL_E_CANCELLED
+        close(watchdog)
         @test time() - t0 < 5
         @test status_of(() -> recv(a; timeout_ms = 100)) == POLYCALL_E_TIMEOUT   # later calls wait normally
         t = spawn_running(() -> status_of(() -> recv(a; timeout_ms = 10000)))
@@ -388,6 +498,40 @@ end
     end
     @test closed
     close(probe)
+end
+
+@testset "a finalizer never clobbers this thread's polycall_last_error" begin
+    # Regression: the finalizer used to call polycall_peer_close inside GC, on
+    # the allocating thread, which cleared the detail of a failure about to be
+    # reported (seen as PolycallError with an empty detail under load).
+    bad = joinpath(TMP, "detail-polycallrc"); write(bad, "max_connections=lots\n")
+    ran = 0; intact = 0
+    for i in 1:20
+        unreferenced_peer_endpoint("jl-fin-$i")     # garbage with a finalizer
+        before = JuliaPolycall.FINALIZED_PEERS[]
+        st = run_config(bad)                         # fails: this thread now holds a detail
+        GC.gc(true)                                  # finalizers run in here, on this thread
+        detail = JuliaPolycall.last_error_detail()
+        if JuliaPolycall.FINALIZED_PEERS[] > before
+            ran += 1
+            intact += (st == POLYCALL_E_CONFIG && occursin("max_connections", detail))
+        end
+    end
+    println("  finalizer ran inside GC.gc in $ran of 20 rounds; detail intact in $intact")
+    @test ran > 0
+    @test intact == ran
+end
+
+@testset "unclosed peers are reclaimed: 300 dropped nodes never exhaust the 255-node limit" begin
+    opened = 0
+    for i in 1:300
+        Peer("jl-leak-$i"; bind = nothing)           # never closed
+        opened += 1
+    end
+    @test opened == 300
+    p = Peer("jl-after-leak")
+    @test isopen(p) && startswith(endpoint(p), "127.0.0.1:")
+    close(p)
 end
 
 @testset "concurrent senders (8 tasks x 25 messages) all delivered once" begin
