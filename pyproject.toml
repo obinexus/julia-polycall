@@ -11,5 +11,6 @@ abi = 1
 support = "supported"
 linux_image = "julia:1"
 build = ""
-test = "JULIA_NUM_THREADS=4 julia --project=. -e 'using Pkg; Pkg.test()'"
-windows_test = ""
+test = "JULIA_PKG_OFFLINE=true JULIA_NUM_THREADS=4 julia --project=. -e 'using Pkg; Pkg.test()'"
+# PowerShell; POLYCALL_LIBRARY = <prefix>\bin\polycall.dll (MSVC) or libpolycall.dll (UCRT64)
+windows_test = "$env:JULIA_PKG_OFFLINE='true'; $env:POLYCALL_CLI='<prefix>\\bin\\polycall.exe'; julia -t 4 --project=. -e 'using Pkg; Pkg.test()'"

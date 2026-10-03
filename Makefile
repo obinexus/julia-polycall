@@ -9,6 +9,8 @@
 
 JULIA ?= julia
 JULIA_NUM_THREADS ?= 4
+# JuliaPolycall depends only on stdlibs: test without installing a registry
+JULIA_PKG_OFFLINE ?= true
 
 .PHONY: all
 all:
@@ -17,7 +19,7 @@ all:
 .PHONY: test
 test:
 	@command -v $(JULIA) >/dev/null 2>&1 || { echo "SKIP: julia not found; Julia tests did not run" >&2; exit 77; }
-	JULIA_NUM_THREADS=$(JULIA_NUM_THREADS) $(JULIA) --project=. -e 'using Pkg; Pkg.test()'
+	JULIA_PKG_OFFLINE=$(JULIA_PKG_OFFLINE) JULIA_NUM_THREADS=$(JULIA_NUM_THREADS) $(JULIA) --project=. -e 'using Pkg; Pkg.test()'
 
 .PHONY: verify-dry
 verify-dry:

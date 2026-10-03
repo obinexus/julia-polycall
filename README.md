@@ -64,8 +64,12 @@ waits until the call returns).
 ## Tests
 
 ```sh
-JULIA_NUM_THREADS=4 julia --project=. -e 'using Pkg; Pkg.test()'    # or: make test
+JULIA_PKG_OFFLINE=true JULIA_NUM_THREADS=4 julia --project=. -e 'using Pkg; Pkg.test()'   # or: make test
 ```
+
+The only dependencies are stdlibs (`Libdl`, and `Test` for the tests), so
+`JULIA_PKG_OFFLINE=true` instantiates and tests without installing any
+registry or touching the network.
 
 `test/runtests.jl` runs against the **real** library: the
 `docs/BINDING_ABI.md` checklist, load errors (fake libraries built from
