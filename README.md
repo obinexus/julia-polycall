@@ -3,7 +3,7 @@
 Julia binding for the [Polycall](https://github.com/obinexus/polycall) C
 library, **binding ABI v1** (`polycall >= 1.1.0`). Every call is a direct
 `ccall` into libpolycall — there is no C shim to build. npm source package:
-`@obinexusltd/julia-polycall` (not yet published).
+`julia-polycall` (not yet published).
 
 ## Loading
 

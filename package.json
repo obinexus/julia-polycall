@@ -1,5 +1,5 @@
 {
-  "name": "@obinexusltd/julia-polycall",
+  "name": "julia-polycall",
   "version": "1.0.0",
   "description": "Julia binding (direct ccall) for the Polycall C library, binding ABI v1 (polycall >= 1.1.0).",
   "main": "index.js",

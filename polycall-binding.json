@@ -1,7 +1,7 @@
 {
   "name": "julia-polycall",
   "version": "1.0.0",
-  "package": "@obinexusltd/julia-polycall",
+  "package": "julia-polycall",
   "julia_package": "JuliaPolycall",
   "language": "Julia",
   "repository": "https://github.com/obinexus/julia-polycall",

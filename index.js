@@ -8,7 +8,7 @@ const path = require('node:path');
 const fromPackageRoot = (...parts) => path.join(__dirname, ...parts);
 
 module.exports = Object.freeze({
-  packageName: '@obinexusltd/julia-polycall',
+  packageName: 'julia-polycall',
   juliaProject: fromPackageRoot('Project.toml'),
   juliaSource: fromPackageRoot('src', 'JuliaPolycall.jl'),
   juliaTests: fromPackageRoot('test', 'runtests.jl'),
