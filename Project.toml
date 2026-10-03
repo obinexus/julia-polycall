@@ -3,5 +3,14 @@ uuid = "7d8b5cf5-28e8-4a84-bd4e-0eaf5e9a7b31"
 authors = ["Nnamdi Michael Okpala <okpalan@protonmail.com>"]
 version = "1.0.0"
 
+[deps]
+Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
+
 [compat]
 julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

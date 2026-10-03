@@ -1,13 +1,19 @@
 {
   "name": "julia-polycall",
+  "version": "1.0.0",
   "package": "@obinexusltd/julia-polycall",
-  "version": "1.5.0",
+  "julia_package": "JuliaPolycall",
   "language": "Julia",
+  "repository": "https://github.com/obinexus/julia-polycall",
   "adapter": true,
   "ffi": true,
+  "mechanism": "ccall straight to libpolycall, resolved at run time (POLYCALL_LIBRARY, then the platform library name)",
+  "core": "polycall >= 1.1.0 (binding ABI 1)",
+  "core_repository": "https://github.com/obinexus/polycall",
   "entry_point": "polycall_ffi_run_config",
+  "entrypoint": "src/JuliaPolycall.jl",
   "config": "julia-polycallrc",
-  "core": "../../src",
+  "test": "make test",
   "license": "MIT",
-  "author": "Nnamdi Michael Okpala"
+  "author": "Nnamdi Michael Okpala <okpalan@protonmail.com>"
 }

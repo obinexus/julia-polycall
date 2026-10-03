@@ -1,114 +1,75 @@
-# @obinexusltd/julia-polycall
+# julia-polycall (`JuliaPolycall`)
 
-Julia `ccall` binding for
-[libpolycall](https://github.com/obinexus/libpolycall) 1.5. The adapter maps
-Julia calls to the single core entry point:
+Julia binding for the [Polycall](https://github.com/obinexus/polycall) C
+library, **binding ABI v1** (`polycall >= 1.1.0`). Every call is a direct
+`ccall` into libpolycall — there is no C shim to build. npm source package:
+`@obinexusltd/julia-polycall` (not yet published).
 
-```c
-polycall_ffi_run_config(config_path, 1)
-```
+## Loading
 
-Configuration parsing, validation, networking, and runtime policy remain in
-libpolycall. This project only marshals the configuration path across the C
-boundary and returns the core status unchanged.
-
-## Install the source package
-
-```shell
-npm install @obinexusltd/julia-polycall
-```
-
-The npm package publishes the complete Julia and C source tree. It is a native
-source distribution rather than a JavaScript implementation. Calling
-`require('@obinexusltd/julia-polycall')` returns absolute paths to the packaged
-Julia project, sources, headers, configuration, manifest, and Makefile.
-
-For Julia development from a checkout or unpacked npm package:
-
-```shell
-julia --project=. -e 'using Pkg; Pkg.instantiate()'
-```
-
-## Requirements
-
-- Julia 1.10 or newer
-- libpolycall 1.5 development library and headers
-- a C11 compiler and GNU Make
-
-## Build
-
-Build the standalone adapter archive without linking libpolycall:
-
-```shell
-make
-```
-
-Build the Julia-loadable shared library by supplying the linker flags for
-libpolycall:
-
-```shell
-export POLYCALL_LDFLAGS='-L/path/to/lib -lpolycall'
-make native
-```
-
-PowerShell uses the same variable:
-
-```powershell
-$env:POLYCALL_LDFLAGS = '-LC:\path\to\lib -lpolycall'
-make native
-```
-
-Place `julia_polycall.dll`, `libjulia_polycall.so`, or
-`libjulia_polycall.dylib` in the platform library search path. Alternatively,
-set `JULIA_POLYCALL_LIBRARY` to the absolute shared-library path before loading
-`JuliaPolycall`.
+The library is resolved **at run time on first use** (never frozen at
+precompile time): `ENV["POLYCALL_LIBRARY"]` first, then `libpolycall.so.1`
+(Linux), `polycall.dll` / `libpolycall.dll` (Windows) or
+`libpolycall.1.dylib` (macOS). All 19 ABI symbols are resolved up front and
+`polycall_ffi_abi_version()` must be 1. A missing library, an old 1.0 library
+(missing symbols) or another ABI throws `PolycallLoadError` naming the
+library and the problem — never a crash.
 
 ## API
 
 ```julia
 using JuliaPolycall
 
-status = run_config("julia-polycallrc")
-run_config_or_throw("julia-polycallrc")
+abi_version()                       # 1
+JuliaPolycall.version()             # "1.1.0"
+
+run_config("julia-polycallrc")      # legacy: polycall_ffi_run_config(path, 1) -> status Int
+run_config_or_throw("julia-polycallrc"; strict = true)   # throws PolycallError
+describe("Polycallfile")            # JSON text
+
+# one RPC round trip to `polycall start` / `polycall daemon start`
+out = call("127.0.0.1:7000", "inventory", "get", "{\"item_id\":\"widget-a\"}"; timeout_ms = 5000)
+
+# peers
+a = Peer("alpha"; token = token)    # bind = "127.0.0.1:0" by default, bind = nothing: send-only
+b = Peer("beta"; token = token)
+register!(a, "beta", endpoint(b))
+send(a, "beta", "hello"; message_id = "m1")
+m = recv(b; timeout_ms = 5000)      # Message(sender, message_id, payload::Vector{UInt8})
+close(a); close(b)
 ```
 
-- `run_config` returns the exact libpolycall status as an `Int`.
-- `run_config_or_throw` raises `PolycallError` for a non-zero status.
-- Omitting the path uses `julia-polycallrc`.
-- Julia's `Cstring` conversion rejects embedded NUL characters.
+Also: `node_id`, `unregister!`, `peers` (registry JSON), `ping`, `cancel`
+(wakes blocked `recv` with `POLYCALL_E_CANCELLED`), `health` (JSON), `isopen`.
+`recv(p; max_payload = n)` throws `POLYCALL_E_TOO_LARGE` with `info` = needed
+bytes and leaves the message queued. Errors are `PolycallError(status, name,
+detail, config_path, info)`: the status code, `polycall_strerror`, and
+`polycall_last_error` read on the same thread right after the failure.
 
-See [`examples/basic.jl`](examples/basic.jl) for a runnable example.
+A `Peer` that is garbage collected without `close` is closed by its
+finalizer. Calls after `close` (including a second `close`) throw
+`POLYCALL_E_INVALID_HANDLE`.
 
-## Verification
+**Threads.** Blocking calls (`recv`, `send`, `ping`, `call`, `close`, …) are
+plain ccalls on the calling thread; run them in `Threads.@spawn` to keep other
+tasks going. On Julia ≥ 1.12 they are `gc_safe`, so a thread blocked in `recv`
+does not stall garbage collection on other threads; on 1.10/1.11 it can (GC
+waits until the call returns).
 
-The default suite needs only a C compiler, Make, Node.js, and PowerShell on
-Windows:
+## Tests
 
-```shell
-npm test
+```sh
+JULIA_NUM_THREADS=4 julia --project=. -e 'using Pkg; Pkg.test()'    # or: make test
 ```
 
-It verifies exact path forwarding, the required validation flag, status
-propagation, thin-adapter constraints, and npm package completeness.
+`test/runtests.jl` runs against the **real** library: the
+`docs/BINDING_ABI.md` checklist, load errors (fake libraries built from
+`test/fixtures/fake_polycall.c`), `call` against a `polycall start`
+runtime, and interop with a `polycall peer serve` C node in both directions.
+It needs `polycall` on PATH (or `POLYCALL_CLI`); checks that cannot run print
+`SKIP` and are never counted as passes.
 
-With Julia installed, run the end-to-end `ccall` smoke test:
+## License
 
-```shell
-npm run test:julia
-```
-
-## Package layout
-
-- `Project.toml` and `src/JuliaPolycall.jl` — standard Julia package
-- `c_src/` — native adapter exported for `ccall`
-- `include/` — adapter C header
-- `generated/polycall/` — minimal generated core FFI declaration
-- `examples/` — Julia example and sample configuration
-- `test/` and `tests/` — Julia, native, and npm package tests
-
-## Author and license
-
-Copyright © 2026 Nnamdi Michael Okpala
+MIT — see [LICENSE](LICENSE). Copyright © 2026 Nnamdi Michael Okpala
 <okpalan@protonmail.com>.
-
-Released under the [MIT License](LICENSE).

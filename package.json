@@ -1,16 +1,13 @@
 {
   "name": "@obinexusltd/julia-polycall",
   "version": "1.0.0",
-  "description": "Julia ccall source binding for libpolycall 1.5",
+  "description": "Julia binding (direct ccall) for the Polycall C library, binding ABI v1 (polycall >= 1.1.0).",
   "main": "index.js",
   "type": "commonjs",
   "files": [
     "index.js",
     "Project.toml",
     "src/",
-    "c_src/",
-    "include/",
-    "generated/",
     "examples/",
     "test/",
     "tests/",
@@ -28,14 +25,11 @@
     "test": "test"
   },
   "scripts": {
-    "build": "make",
-    "build:native": "make native",
-    "test": "make test && npm run verify:dry && npm run test:package",
-    "test:julia": "make test-julia",
+    "test": "make test",
     "test:package": "node tests/package.test.js",
     "verify:dry": "make verify-dry",
-    "verify": "npm test",
-    "prepack": "npm test"
+    "verify": "npm run verify:dry && npm run test:package",
+    "prepack": "node tests/package.test.js"
   },
   "repository": {
     "type": "git",

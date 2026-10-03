@@ -1,0 +1,15 @@
+# QA descriptor for the Polycall binding matrix (read by polycall/qa/run_qa.py).
+# This repository is NOT a Python package and is not pip-installable;
+# its native manifest is Project.toml (plus package.json for the npm source package).
+[tool.polycall.binding]
+name = "julia-polycall"
+language = "Julia"
+native_manifest = "Project.toml"
+registry = "npm"
+package = "@obinexusltd/julia-polycall"
+abi = 1
+support = "supported"
+linux_image = "julia:1"
+build = ""
+test = "JULIA_NUM_THREADS=4 julia --project=. -e 'using Pkg; Pkg.test()'"
+windows_test = ""

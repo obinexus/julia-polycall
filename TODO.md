@@ -1,15 +1,11 @@
-# TODO — julia-polycall
+# TODO — julia-polycall (Julia)
 
-Status: implemented thin Julia adapter for libpolycall 1.5.
+Status: direct-`ccall` binding over the Polycall binding ABI v1
+(polycall >= 1.1.0), tested against the real library on Linux (julia:1).
 
-- [x] Publishable `@obinexusltd/julia-polycall` npm source package
-- [x] Standard Julia `Project.toml` and module layout
-- [x] `ccall` status and exception APIs with checked `Cstring` marshalling
-- [x] Exact `polycall_ffi_run_config(config_path, 1)` forwarding
-- [x] Runnable example under `examples/`
-- [x] Native forwarding test and Julia smoke test
-- [x] Thin-adapter source audit for Windows and POSIX shells
-- [ ] Exercise the Julia smoke test in release CI across supported platforms
-- [ ] Publish signed platform-native artifacts alongside the source package
-
-Do not add configuration parsing or runtime policy here; adapt the core only.
+- [x] ccall straight to libpolycall; run-time resolution (POLYCALL_LIBRARY first)
+- [x] ABI/symbol checks with `PolycallLoadError`; `PolycallError` with status, name, detail
+- [x] `run_config`, `describe`, `call`, `Peer` (open/close/endpoint/node_id/register!/unregister!/peers/ping/send/recv/cancel/health)
+- [x] `Pkg.test()` against the real core, interop with `polycall peer serve`
+- [ ] Windows run (no Julia toolchain on the QA host)
+- [ ] Register in the Julia General registry / publish the npm source package (not done by QA)

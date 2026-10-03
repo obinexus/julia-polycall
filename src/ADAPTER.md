@@ -1,10 +1,11 @@
 # Julia adapter
 
-The implementation lives in `JuliaPolycall.jl`. It crosses the `ccall`/FFI
-boundary only through:
+`JuliaPolycall.jl` ccalls the Polycall binding ABI v1 directly. The library
+is located at run time (`POLYCALL_LIBRARY`, then the platform name), every
+symbol is resolved up front and the ABI version is checked before first use.
 
-    status = polycall_ffi_run_config("julia-polycallrc", /*run=*/1)
+The documented entry point is unchanged:
 
-`run_config` returns the status and `run_config_or_throw` raises
-`PolycallError`. No configuration parsing or core runtime logic belongs in this
-binding.
+    run_config(path) == polycall_ffi_run_config(path, /*run=*/1)
+
+No configuration parsing or core runtime logic belongs in this binding.
